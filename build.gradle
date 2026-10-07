@@ -1,0 +1,140 @@
+plugins {
+    id 'idea'
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+// 本脚本会被 Stonecutter 对每个 Minecraft 版本各执行一次
+// sc.current.version 就是当前节点，例如 1.21.1 / 1.21.4 / 26.3
+version = "${mod_version}+${sc.current.version}"
+group = mod_group_id
+
+repositories {
+    maven { url 'https://maven.aliyun.com/nexus/content/groups/public/' }
+}
+
+base {
+    archivesName = mod_id
+}
+
+// 1.21 系列用 Java 21；往上如果某个节点需要更新的 JDK，
+// 在那个节点的 gradle.properties 里写 java_version=xx 即可（Gradle 会自动下载对应工具链）。
+java.toolchain.languageVersion = JavaLanguageVersion.of(
+        (project.findProperty('java_version') ?: '21') as int)
+
+neoForge {
+    version = project.neo_version
+
+    // Parchment 不是每个游戏版本都有；节点里没写就跳过
+    if (project.hasProperty('parchment_mappings_version') && project.parchment_mappings_version) {
+        parchment {
+            mappingsVersion = project.parchment_mappings_version
+            minecraftVersion = project.parchment_minecraft_version
+        }
+    }
+
+    runs {
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+
+        configureEach {
+            // 各游戏版本使用独立的运行目录，避免存档与配置互相污染
+            gameDirectory = file("${rootDir}/run/${sc.current.version}")
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+// 把 src/main/templates 里 ${...} 占位符换成当前节点的实际参数
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    // 注意：节点项目的目录在 versions/<版本>/ 下，模板必须从工程根取
+    from "${rootDir}/src/main/templates"
+    into "${buildDir}/generated/sources/modMetadata"
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+// 构建完成后把 jar 复制到工程根目录的 lib/ 和 libs/：
+// 每个游戏版本各留一份，文件名带版本号（betterlocate-<mod_version>+<mc_version>.jar）
+['lib', 'libs'].each { folder ->
+    def copyJar = tasks.register("copyJarTo${folder.capitalize()}", Copy) {
+        dependsOn tasks.named('jar')
+        from tasks.named('jar').flatMap { it.archiveFile }
+        into rootProject.file(folder)
+    }
+    tasks.named('build') {
+        finalizedBy copyJar
+    }
+}
+
+// 顺手把 1.21.1 那一份同步到东北乐事的开发运行目录（那个工程是 1.21.1）：
+// 目标目录不存在时自动跳过；文件被运行中的游戏占用时只警告，不让构建失败。
+if (sc.current.version == '1.21.1') {
+    // 注意用 rootProject 定位：节点项目的目录在 versions/<版本>/ 下，直接写 ../ 会指错
+    def dongbeiModsDir = rootProject.file('../dongbei_delight1.21.1/run/1.21.1/mods')
+    def betterLocateJar = tasks.named('jar').get().archiveFile.get().asFile
+
+    tasks.register('copyJarToDongbeiMods') {
+        dependsOn tasks.named('jar')
+        doLast {
+            if (!dongbeiModsDir.isDirectory()) {
+                logger.lifecycle("跳过同步：找不到东北乐事的运行目录 ${dongbeiModsDir}")
+                return
+            }
+            def target = new File(dongbeiModsDir, betterLocateJar.name)
+            try {
+                // 先把旧版本的 betterlocate-*.jar 清掉：同一个 modid 留两份会让游戏起不来
+                dongbeiModsDir.listFiles()?.each { f ->
+                    if (f.name.startsWith('betterlocate-') && f.name != betterLocateJar.name) {
+                        f.delete()
+                        logger.lifecycle("清掉旧版本 ${f.name}")
+                    }
+                }
+                java.nio.file.Files.copy(betterLocateJar.toPath(), target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                logger.lifecycle("已同步 ${betterLocateJar.name} 到 ${dongbeiModsDir}")
+            } catch (Exception e) {
+                logger.warn("同步失败（游戏可能正在运行，关掉再构建即可）：${e.message}")
+            }
+        }
+    }
+    tasks.named('build') {
+        finalizedBy 'copyJarToDongbeiMods'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

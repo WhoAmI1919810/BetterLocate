@@ -1,0 +1,30 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+        // Stonecutter 的插件仓库
+        maven { url = 'https://maven.kikugie.dev/snapshots' }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.9.0'
+    id 'dev.kikugie.stonecutter' version '0.9.8'
+}
+
+// 一个节点 = 一个 Minecraft 版本；每个节点会在 versions/<版本>/ 下生成一个子项目。
+// 1.21 系列从 1.21.1 一路到 1.21.11；再往上就是新的年份版本号 26.1 / 26.2 / 26.3。
+stonecutter {
+    kotlinController = false
+    centralScript = 'build.gradle'
+
+    create(getRootProject()) {
+        versions '1.21', '1.21.1', '1.21.2', '1.21.3', '1.21.4', '1.21.5', '1.21.6',
+                '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11',
+                '26.1.2', '26.2', '26.3'
+        // 提交进仓库的源码状态以 1.21.1 为准
+        vcsVersion = '1.21.1'
+    }
+}
+
+rootProject.name = 'betterlocate'
