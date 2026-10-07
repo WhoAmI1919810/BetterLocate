@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+versions/*/build/
+
+# 运行目录（各版本的游戏存档/配置/日志）
+run/
+
+# 构建产物（发布物走 GitHub Releases，不进仓库）
+lib/
+libs/
+
+# 构建/调试日志
+*.log
+*.err
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+bin/
+out/
+
+# 其他
+*.rar
+*.zip
+hs_err_pid*.log

@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.betterlocate.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "LocateCommandMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
