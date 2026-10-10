@@ -37,6 +37,7 @@ import net.minecraft.network.chat.ComponentUtils;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BiomeTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
@@ -467,10 +468,20 @@ public final class BetterLocateCommand
     /** 单独一个「[安全传送]」按钮：执行 /safetp，自动找到能站得住的高度 */
     private static Component teleportButton(BlockPos pos, boolean keepY)
     {
+        return teleportButton(pos, keepY, false);
+    }
+
+    /**
+     * {@code water} 为真时按钮生成的指令带上 onwater：允许落在水面上。
+     * 用于 /locate 海洋群系的结果——海底一般离海面几十格，直接传海底并不安全，
+     * 先落海面，之后由玩家用 /safetp next 自己决定要不要潜下去。
+     */
+    private static Component teleportButton(BlockPos pos, boolean keepY, boolean water)
+    {
         return Component.literal("[安全传送]")
                 .withStyle(style -> style.withColor(ChatFormatting.AQUA)
-                        .withClickEvent(safeTpClick(pos))
-                        .withHoverEvent(showText(Component.literal("点击执行 " + safeTpCommand(pos)))));
+                        .withClickEvent(safeTpClick(pos, water))
+                        .withHoverEvent(showText(Component.literal("点击执行 " + safeTpCommand(pos, water)))));
     }
 
     /** 版本差异：1.21.5 起 HoverEvent 由类变成接口，要用 HoverEvent.ShowText 构造 */
@@ -495,17 +506,23 @@ public final class BetterLocateCommand
 
     private static ClickEvent safeTpClick(BlockPos pos)
     {
+        return safeTpClick(pos, false);
+    }
+
+    private static ClickEvent safeTpClick(BlockPos pos, boolean water)
+    {
         // 版本差异：1.21.5 起 ClickEvent 也变成了接口，RUN_COMMAND 对应 ClickEvent.RunCommand
         //? if >=1.21.5 {
-        /*return new ClickEvent.RunCommand(safeTpCommand(pos));*/
+        /*return new ClickEvent.RunCommand(safeTpCommand(pos, water));*/
         //?} else {
-        return new ClickEvent(ClickEvent.Action.RUN_COMMAND, safeTpCommand(pos));
+        return new ClickEvent(ClickEvent.Action.RUN_COMMAND, safeTpCommand(pos, water));
         //?}
     }
 
-    private static String safeTpCommand(BlockPos pos)
+    private static String safeTpCommand(BlockPos pos, boolean water)
     {
-        return String.format("/safetp @s %d %d %d top normal 3", pos.getX(), pos.getY(), pos.getZ());
+        return String.format("/safetp @s %d %d %d top%s normal 3",
+                pos.getX(), pos.getY(), pos.getZ(), water ? " onwater" : "");
     }
 
     private static String teleportCommand(BlockPos pos, boolean keepY)
@@ -526,11 +543,17 @@ public final class BetterLocateCommand
     private static int showNearest(CommandSourceStack source, String translationKey, String elementName,
                                    BlockPos center, BlockPos pos, boolean showRealY)
     {
+        return showNearest(source, translationKey, elementName, center, pos, showRealY, false);
+    }
+
+    private static int showNearest(CommandSourceStack source, String translationKey, String elementName,
+                                   BlockPos center, BlockPos pos, boolean showRealY, boolean water)
+    {
         int distance = distanceTo(center, pos, showRealY);
         Component message = Component.translatable(translationKey, elementName, coordinate(pos, showRealY), distance)
                 .withStyle(ChatFormatting.GREEN)
                 .append(Component.literal("  "))
-                .append(teleportButton(pos, !showRealY));
+                .append(teleportButton(pos, !showRealY, water));
         feedback(source, message);
         return distance;
     }
@@ -920,7 +943,7 @@ public final class BetterLocateCommand
                 throw ERROR_BIOME_NOT_FOUND.create(target.asPrintable());
             }
             int result = showNearest(source, "commands.locate.biome.success", target.asPrintable(),
-                    center, pos, true);
+                    center, pos, true, isOceanTarget(target));
             feedback(source, Component.literal("（用时 " + millis(stopwatch) + " ms）").withStyle(ChatFormatting.DARK_GRAY));
             return result;
         }
@@ -953,10 +976,18 @@ public final class BetterLocateCommand
             Component line = Component.literal("最近的一个在 ").withStyle(ChatFormatting.GRAY)
                     .append(coordinate(scan.nearest(), true))
                     .append(Component.literal("  "))
-                    .append(teleportButton(scan.nearest(), false));
+                    .append(teleportButton(scan.nearest(), false, isOceanTarget(target)));
             feedback(source, line);
         }
         return Math.max(1, scan.matched());
+    }
+
+    /** 搜索目标是否全部是海洋群系：是的话 [安全传送] 会带 onwater，先落在海面上 */
+    private static boolean isOceanTarget(ResourceOrTagArgument.Result<Biome> target)
+    {
+        return target.unwrap().map(
+                holder -> holder.is(BiomeTags.IS_OCEAN),
+                tag -> tag.stream().allMatch(holder -> holder.is(BiomeTags.IS_OCEAN)));
     }
 
     /** 取样用的区块：positions 是区块中点打包坐标，visited[i] 表示这一格玩家到访过没有 */

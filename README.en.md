@@ -35,7 +35,7 @@ All of the following parameters are optional, and their order does not matter.
 This mod adds the `/safetp` command, which finds a safe teleport height near the specified coordinates — avoiding teleports that leave you inside blocks, falling from a height, or landing in fluid or powder snow.
 
 ```
-/safetp [target selector] [x y z] [top/bottom] [next] [normal/force] [radius]
+/safetp [target selector] [x y z] [top/bottom] [onwater] [next] [normal/force] [radius]
 ```
 
 - The target selector can be omitted and defaults to the executor; the coordinates can be omitted and default to the target entity's current position.
@@ -43,6 +43,8 @@ This mod adds the `/safetp` command, which finds a safe teleport height near the
 - Coordinates use vanilla notation, supporting both absolute and relative coordinates such as `~ ~ ~`; pressing Tab fills in the current coordinates at once.
 
 - `top` searches downward from the build limit; `bottom` searches upward from the minimum build height. If omitted, the entity's last-used direction is kept; if there is no record, `top` is used.
+
+- `onwater` also accepts the water surface as a valid teleport spot. Ocean biomes contain nothing but water down to the seabed, so landing directly on the ocean floor leaves you submerged; with `onwater` you land on the surface first, and can then use `/safetp next` to continue searching downward for a truly safe spot. Without it, the water surface does not count as a teleport spot. Once specified, it is carried over by subsequent `next` calls. The [safe teleport] button in `/locate` ocean-biome results adds this parameter automatically.
 
 - `next` continues the search from the previously found position. With `top` it continues downward; with `bottom` it continues upward.
 
