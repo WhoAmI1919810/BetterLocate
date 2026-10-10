@@ -57,8 +57,8 @@ import java.util.UUID;
  *       没有记录则用 top；</li>
  *   <li>onwater：允许把「水面」也当作可用的传送点——用于海洋群系这类
  *       整个纵列只有水和海底的场景：先落在海面上，再用 next 继续向下找
- *       真正站得住的安全位置。不写则水面不算传送点。指定一次后由后续
- *       next 沿用，直到该实体以非 onwater 方式重新传送；</li>
+ *       真正站得住的安全位置。不写则水面不算传送点。onwater 只对本次
+ *       落地生效，next 永远找真正的安全位置，不会落在水里；</li>
  *   <li>next：不重新搜整根柱子，而是从上一次找到的安全位置（或脚下已经算安全的
  *       位置）出发，沿当前方向找下一个。top 的「下一个」在下方，bottom 的在上方；</li>
  *   <li>normal：每个候选落脚点先在其 radius 格垂直范围内就近换到满足「安全传送点」的
@@ -89,10 +89,10 @@ public final class SafeTpCommand
     private static final SimpleCommandExceptionType ERROR_NO_LAST =
             new SimpleCommandExceptionType(Component.literal("没有记录上一个安全位置，无法使用 next"));
 
-    /** 每个实体记住：上一次选了 top 还是 bottom、是否允许落水面、上一次落到的位置 */
+    /** 每个实体记住：上一次选了 top 还是 bottom、上一次落到的安全位置 */
     private static final Map<UUID, SearchState> STATES = new HashMap<>();
 
-    private record SearchState(boolean bottom, boolean water, BlockPos lastPos)
+    private record SearchState(boolean bottom, BlockPos lastPos)
     {
     }
 
@@ -205,8 +205,8 @@ public final class SafeTpCommand
             }
             SearchState state = STATES.get(entity.getUUID());
             boolean bottom = top != null ? !top : (state != null && state.bottom());
-            // onwater 指定一次后由后续 next 沿用
-            boolean waterMode = water || (state != null && state.water());
+            // onwater 只影响本次落地：next 永远找真正的安全位置，不落在水里
+            boolean waterMode = water && !next;
             BlockPos requested = hasNode(context, "pos")
                     ? BlockPosArgument.getBlockPos(context, "pos")
                     : BlockPos.containing(entity.getX(), entity.getY(), entity.getZ());
@@ -255,7 +255,7 @@ public final class SafeTpCommand
             entity.teleportTo(level, target.getX() + 0.5, target.getY(), target.getZ() + 0.5,
                     Set.of(), entity.getYRot(), entity.getXRot());
             //?}
-            STATES.put(entity.getUUID(), new SearchState(bottom, waterMode, target));
+            STATES.put(entity.getUUID(), new SearchState(bottom, target));
             teleported++;
             boolean onWater = isWaterSurface(level, target);
             String nextLabel = bottom ? "继续向上" : "继续向下";
@@ -337,8 +337,12 @@ public final class SafeTpCommand
         while (y >= lo && y <= hi)
         {
             BlockPos candidate = new BlockPos(x, y, z);
-            // onwater 时水面也算候选：先落在海面上，之后再用 next 找真正的安全位置
-            if (isForceSpot(level, candidate) || (water && isWaterSurface(level, candidate)))
+            // onwater 时水面直接作为落点：先落在海面上，之后再用 next 找真正的安全位置
+            if (water && isWaterSurface(level, candidate))
+            {
+                return candidate;
+            }
+            if (isForceSpot(level, candidate))
             {
                 if (isSafeSpot(level, candidate))
                 {
