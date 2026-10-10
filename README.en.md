@@ -35,7 +35,7 @@ All of the following parameters are optional, and their order does not matter.
 This mod adds the `/safetp` command, which finds a safe teleport height near the specified coordinates — avoiding teleports that leave you inside blocks, falling from a height, or landing in fluid or powder snow.
 
 ```
-/safetp [target selector] [x y z] [top/bottom] [onwater] [next] [normal/force] [radius]
+/safetp [target selector] [x y z] [top/bottom] [next] [normal/force] [radius]
 ```
 
 - The target selector can be omitted and defaults to the executor; the coordinates can be omitted and default to the target entity's current position.
@@ -44,9 +44,9 @@ This mod adds the `/safetp` command, which finds a safe teleport height near the
 
 - `top` searches downward from the build limit; `bottom` searches upward from the minimum build height. If omitted, the entity's last-used direction is kept; if there is no record, `top` is used.
 
-- `onwater` also accepts the water surface as a valid teleport spot. Ocean biomes contain nothing but water down to the seabed, so landing directly on the ocean floor leaves you submerged; with `onwater` you land on the surface first, and can then use `/safetp next` to continue searching downward for a truly safe spot. Without it, the water surface does not count as a teleport spot. Once specified, it is carried over by subsequent `next` calls. The [safe teleport] button in `/locate` ocean-biome results adds this parameter automatically.
+- Water-surface landing: while scanning downward with `top`, if everything above is air and the first non-air block encountered is water (fluid), the teleport lands on the water surface. This applies wherever a water surface exists — oceans, rivers, lakes — and `/safetp next` can then continue downward to find a truly safe spot. If some other non-air block (leaves, buildings, etc.) sits above the water, the water surface does not count and the normal rules apply.
 
-- `next` continues the search from the previously found position. With `top` it continues downward; with `bottom` it continues upward.
+- `next` continues the search from the previously found position. With `top` it continues downward; with `bottom` it continues upward. `next` only looks for truly safe spots and never lands in water.
 
 - `normal` only teleports to a safe position; `force` allows teleporting to a fallback position that meets basic standing requirements when no safe position is found.
 

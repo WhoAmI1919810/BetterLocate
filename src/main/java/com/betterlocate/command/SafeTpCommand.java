@@ -47,7 +47,7 @@ import java.util.UUID;
  * {@code /safetp}：把实体传送到目标 X/Z 附近「能站得住」的位置。
  *
  * <pre>
- * /safetp [targets] [&lt;x z&gt;] [top|bottom] [onwater] [next] [normal|force] [radius]
+ * /safetp [targets] [&lt;x z&gt;] [top|bottom] [next] [normal|force] [radius]
  * /safetp next
  * </pre>
  *
@@ -55,12 +55,13 @@ import java.util.UUID;
  *   <li>targets：缺省为执行者自己；x/z 缺省为该实体执行指令时所在的位置；</li>
  *   <li>top/bottom：从世界顶端往下找 / 从底端往上找。缺省时沿用该实体上一次的选择，
  *       没有记录则用 top；</li>
- *   <li>onwater：允许把「水面」也当作可用的传送点——用于海洋群系这类
- *       整个纵列只有水和海底的场景：先落在海面上，再用 next 继续向下找
- *       真正站得住的安全位置。不写则水面不算传送点。onwater 只对本次
- *       落地生效，next 永远找真正的安全位置，不会落在水里；</li>
+ *   <li>水面：用 top 从空中往下扫描时，若一路都是空气、第一个遇到的非空气方块
+ *       是水（流体），就直接落在水面上——海洋、河流、湖泊等任何含水面的地方
+ *       都适用，之后可用 next 继续向下找真正站得住的安全位置；若水面之上
+ *       先有别的非空气方块（树冠、桥、房屋……）则水面不生效，按普通规则找；</li>
  *   <li>next：不重新搜整根柱子，而是从上一次找到的安全位置（或脚下已经算安全的
- *       位置）出发，沿当前方向找下一个。top 的「下一个」在下方，bottom 的在上方；</li>
+ *       位置）出发，沿当前方向找下一个。top 的「下一个」在下方，bottom 的在上方。
+ *       next 只找真正的安全位置，不会落在水里；</li>
  *   <li>normal：每个候选落脚点先在其 radius 格垂直范围内就近换到满足「安全传送点」的
  *       位置，换不到就继续找下一个候选；</li>
  *   <li>force：找到第一个满足「强制传送点」的候选后同样先尝试就近换成安全位置，
@@ -74,8 +75,9 @@ import java.util.UUID;
  * <p>强制传送点：只要求脚下是能站人的实体方块，腿部与头部两格不是实体方块
  * （允许是空气、流体、细雪等非实体方块）。</p>
  *
- * <p>水面点（仅 onwater）：本格与头顶没有碰撞且安全（同安全传送点的要求），
- * 脚下是流体（海水等）。</p>
+ * <p>水面点：从空中一路往下第一个非空气方块是流体时，其上的空气格。
+ * 只在上方向下找（top）的初次落地时生效；先碰到其他非空气方块，或 next
+ * 继续找时都不生效。</p>
  */
 public final class SafeTpCommand
 {
@@ -115,11 +117,11 @@ public final class SafeTpCommand
         //?}
 
         // /safetp 裸指令 —— 等价于 /safetp next
-        root.executes(ctx -> execute(ctx, null, true, false, false, DEFAULT_RADIUS));
-        root.then(Commands.literal("next").executes(ctx -> execute(ctx, null, true, false, false, DEFAULT_RADIUS)));
+        root.executes(ctx -> execute(ctx, null, true, false, DEFAULT_RADIUS));
+        root.then(Commands.literal("next").executes(ctx -> execute(ctx, null, true, false, DEFAULT_RADIUS)));
 
         ArgumentBuilder<CommandSourceStack, ?> targets = Commands.argument("targets", EntityArgument.entities());
-        targets.executes(ctx -> execute(ctx, null, false, false, false, DEFAULT_RADIUS));
+        targets.executes(ctx -> execute(ctx, null, false, false, DEFAULT_RADIUS));
         attachCoordinates(targets);
         root.then(targets);
 
@@ -132,53 +134,43 @@ public final class SafeTpCommand
     private static void attachCoordinates(ArgumentBuilder<CommandSourceStack, ?> node)
     {
         ArgumentBuilder<CommandSourceStack, ?> pos = Commands.argument("pos", BlockPosArgument.blockPos());
-        pos.executes(ctx -> execute(ctx, null, false, false, false, DEFAULT_RADIUS));
+        pos.executes(ctx -> execute(ctx, null, false, false, DEFAULT_RADIUS));
         attachTail(pos);
         node.then(pos);
     }
 
-    /** 把 [top|bottom]、[onwater]、[next]、[normal|force]、[radius] 这串可选尾巴挂到节点下 */
+    /** 把 [top|bottom]、[next]、[normal|force]、[radius] 这串可选尾巴挂到节点下 */
     private static void attachTail(ArgumentBuilder<CommandSourceStack, ?> node)
     {
         for (boolean bottom : new boolean[]{false, true})
         {
             LiteralArgumentBuilder<CommandSourceStack> dir = Commands.literal(bottom ? "bottom" : "top");
-            dir.executes(ctx -> execute(ctx, !bottom, false, false, false, DEFAULT_RADIUS));
-            attachModeAndRadius(dir, !bottom, false, false);
-            // onwater：把水面也算作传送点，后面同样能接 next 与 normal/force
-            LiteralArgumentBuilder<CommandSourceStack> water = Commands.literal("onwater");
-            water.executes(ctx -> execute(ctx, !bottom, false, false, true, DEFAULT_RADIUS));
-            attachModeAndRadius(water, !bottom, false, true);
-            LiteralArgumentBuilder<CommandSourceStack> waterNext = Commands.literal("next");
-            waterNext.executes(ctx -> execute(ctx, !bottom, true, false, true, DEFAULT_RADIUS));
-            attachModeAndRadius(waterNext, !bottom, true, true);
-            water.then(waterNext);
-            dir.then(water);
+            dir.executes(ctx -> execute(ctx, !bottom, false, false, DEFAULT_RADIUS));
+            attachModeAndRadius(dir, !bottom, false);
             // 方向之后的 next：沿该方向继续找
             LiteralArgumentBuilder<CommandSourceStack> next = Commands.literal("next");
-            next.executes(ctx -> execute(ctx, !bottom, true, false, false, DEFAULT_RADIUS));
-            attachModeAndRadius(next, !bottom, true, false);
+            next.executes(ctx -> execute(ctx, !bottom, true, false, DEFAULT_RADIUS));
+            attachModeAndRadius(next, !bottom, true);
             dir.then(next);
             node.then(dir);
         }
         // 不写方向也允许直接 next：方向沿用上一次的选择
         LiteralArgumentBuilder<CommandSourceStack> next = Commands.literal("next");
-        next.executes(ctx -> execute(ctx, null, true, false, false, DEFAULT_RADIUS));
-        attachModeAndRadius(next, null, true, false);
+        next.executes(ctx -> execute(ctx, null, true, false, DEFAULT_RADIUS));
+        attachModeAndRadius(next, null, true);
         node.then(next);
     }
 
     /** 挂 [normal|force]，各自还能再跟一个 [radius] */
-    private static void attachModeAndRadius(ArgumentBuilder<CommandSourceStack, ?> node, Boolean top,
-                                            boolean next, boolean water)
+    private static void attachModeAndRadius(ArgumentBuilder<CommandSourceStack, ?> node, Boolean top, boolean next)
     {
         for (boolean force : new boolean[]{false, true})
         {
             LiteralArgumentBuilder<CommandSourceStack> mode = Commands.literal(force ? "force" : "normal");
-            mode.executes(ctx -> execute(ctx, top, next, force, water, DEFAULT_RADIUS));
+            mode.executes(ctx -> execute(ctx, top, next, force, DEFAULT_RADIUS));
             ArgumentBuilder<CommandSourceStack, ?> radius =
                     Commands.argument("radius", IntegerArgumentType.integer(1, MAX_RADIUS));
-            radius.executes(ctx -> execute(ctx, top, next, force, water,
+            radius.executes(ctx -> execute(ctx, top, next, force,
                     IntegerArgumentType.getInteger(ctx, "radius")));
             mode.then(radius);
             node.then(mode);
@@ -190,7 +182,7 @@ public final class SafeTpCommand
     // ======================================================================
 
     private static int execute(CommandContext<CommandSourceStack> context, Boolean top,
-                               boolean next, boolean force, boolean water, int radius) throws CommandSyntaxException
+                               boolean next, boolean force, int radius) throws CommandSyntaxException
     {
         CommandSourceStack source = context.getSource();
         Collection<? extends Entity> entities = hasNode(context, "targets")
@@ -205,8 +197,8 @@ public final class SafeTpCommand
             }
             SearchState state = STATES.get(entity.getUUID());
             boolean bottom = top != null ? !top : (state != null && state.bottom());
-            // onwater 只影响本次落地：next 永远找真正的安全位置，不落在水里
-            boolean waterMode = water && !next;
+            // 水面落地只在初次传送时生效：next 永远找真正的安全位置，不落在水里
+            boolean waterMode = !next;
             BlockPos requested = hasNode(context, "pos")
                     ? BlockPosArgument.getBlockPos(context, "pos")
                     : BlockPos.containing(entity.getX(), entity.getY(), entity.getZ());
@@ -334,11 +326,14 @@ public final class SafeTpCommand
         int hi = maxY(level) - 1;
         int y = Math.max(lo, Math.min(hi, fromY));
         int step = bottom ? 1 : -1;
+        // 水面规则：top 向下扫时，「一路空气、第一个非空气方块是流体」才允许落水面。
+        // 先在纵列上碰到任何其他非空气方块（树叶、建筑……），水面就不再算数。
+        // 从 fromY 往下扫时，fromY 之上的情况并不知道，但只要脚下是水面就同样适用。
+        boolean skyClear = water && !bottom;
         while (y >= lo && y <= hi)
         {
             BlockPos candidate = new BlockPos(x, y, z);
-            // onwater 时水面直接作为落点：先落在海面上，之后再用 next 找真正的安全位置
-            if (water && isWaterSurface(level, candidate))
+            if (skyClear && isWaterSurface(level, candidate))
             {
                 return candidate;
             }
@@ -351,6 +346,15 @@ public final class SafeTpCommand
                 if (force)
                 {
                     return candidate;
+                }
+            }
+            // 跟踪「水面规则是否仍然成立」：遇到非空气、非流体的方块后就失效
+            if (skyClear)
+            {
+                BlockState state = level.getBlockState(candidate);
+                if (!state.isAir() && state.getFluidState().isEmpty())
+                {
+                    skyClear = false;
                 }
             }
             y += step;
