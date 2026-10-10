@@ -249,13 +249,11 @@ public final class SafeTpCommand
             //?}
             STATES.put(entity.getUUID(), new SearchState(bottom, target));
             teleported++;
-            boolean onWater = isWaterSurface(level, target);
             String nextLabel = bottom ? "继续向上" : "继续向下";
             
             source.sendSuccess(() -> Component.literal(String.format(
-                            "已将 %s 安全传送到 (%d, %d, %d)%s  ",
-                            entity.getName().getString(), target.getX(), target.getY(), target.getZ(),
-                            onWater ? "（海面）" : ""))
+                            "已将 %s 安全传送到 (%d, %d, %d)  ",
+                            entity.getName().getString(), target.getX(), target.getY(), target.getZ()))
                     .withStyle(ChatFormatting.GREEN)
                     .append(Component.literal("[" + nextLabel + "]")
                             .withStyle(style -> style.withColor(ChatFormatting.AQUA)
