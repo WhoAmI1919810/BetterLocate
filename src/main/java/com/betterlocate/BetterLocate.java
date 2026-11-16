@@ -2,9 +2,15 @@ package com.betterlocate;
 
 import com.betterlocate.command.SafeTpCommand;
 import com.mojang.logging.LogUtils;
+//? if <1.20.2 {
+/*import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.fml.common.Mod;*/
+//?} else {
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+//?}
 import org.slf4j.Logger;
 
 /**
@@ -22,8 +28,13 @@ public class BetterLocate
 
     public BetterLocate()
     {
+        //? if <1.20.2 {
+        /*MinecraftForge.EVENT_BUS.addListener((RegisterCommandsEvent event) ->
+                SafeTpCommand.register(event.getDispatcher(), event.getBuildContext()));*/
+        //?} else {
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) ->
                 SafeTpCommand.register(event.getDispatcher(), event.getBuildContext()));
+        //?}
         LOGGER.info("BetterLocate 已加载：/locate 换成增强版，新增 /safetp 安全传送");
     }
 }

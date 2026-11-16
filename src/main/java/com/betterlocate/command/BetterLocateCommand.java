@@ -100,16 +100,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class BetterLocateCommand
 {
     private static final DynamicCommandExceptionType ERROR_STRUCTURE_INVALID = new DynamicCommandExceptionType(
-            value -> Component.translatableEscape("commands.locate.structure.invalid", value));
+            value -> errorTranslation("commands.locate.structure.invalid", value));
     private static final DynamicCommandExceptionType ERROR_STRUCTURE_NOT_FOUND = new DynamicCommandExceptionType(
-            value -> Component.translatableEscape("commands.locate.structure.not_found", value));
+            value -> errorTranslation("commands.locate.structure.not_found", value));
     private static final DynamicCommandExceptionType ERROR_BIOME_NOT_FOUND = new DynamicCommandExceptionType(
-            value -> Component.translatableEscape("commands.locate.biome.not_found", value));
+            value -> errorTranslation("commands.locate.biome.not_found", value));
     private static final DynamicCommandExceptionType ERROR_POI_NOT_FOUND = new DynamicCommandExceptionType(
-            value -> Component.translatableEscape("commands.locate.poi.not_found", value));
+            value -> errorTranslation("commands.locate.poi.not_found", value));
     private static final DynamicCommandExceptionType ERROR_RADIUS_TOO_LARGE = new DynamicCommandExceptionType(
             value -> Component.literal("搜索范围太大了：这次要检查 " + value + " 个区块。请把 radius 改小一些，"
                     + "或者加上 chunks visited / chunks unvisited 只扫一部分区块。"));
+
+    private static Component errorTranslation(String key, Object value)
+    {
+        //? if <1.20.2 {
+        /*return Component.translatable(key, value);*/
+        //?} else {
+        return Component.translatableEscape(key, value);
+        //?}
+    }
 
     /** 并行搜索用的线程池：只跑纯计算（生物群系取样、候选区块枚举），不碰世界数据 */
     private static final ExecutorService POOL = Executors.newFixedThreadPool(
@@ -385,6 +394,15 @@ public final class BetterLocateCommand
         //?}
     }
 
+    private static String holderId(Holder<?> holder)
+    {
+        //? if >=1.21.11 {
+        /*return holder.unwrapKey().map(key -> key.identifier().toString()).orElse("unknown");*/
+        //?} else {
+        return holder.unwrapKey().map(key -> key.location().toString()).orElse("unknown");
+        //?}
+    }
+
     // ------------------------------------------------------------------
     // 版本差异：26.x 起 ChunkPos 变成了 record，字段改成 x()/z()，
     // 序列化方法也从 toLong/asLong 改名为 pack。下面三个小工具把它们抹平。
@@ -585,7 +603,7 @@ public final class BetterLocateCommand
             }
             String elementName = target.unwrap().map(
                     key -> target.asPrintable(),
-                    tag -> target.asPrintable() + " (" + pair.getSecond().getRegisteredName() + ")");
+                    tag -> target.asPrintable() + " (" + holderId(pair.getSecond()) + ")");
             int result = showNearest(source, "commands.locate.structure.success", elementName,
                     center, pair.getFirst(), false);
             feedback(source, Component.literal("（用时 " + millis(stopwatch) + " ms）").withStyle(ChatFormatting.DARK_GRAY));
@@ -732,7 +750,11 @@ public final class BetterLocateCommand
                         {
                             ChunkPos candidate = spread.getPotentialStructureChunk(
                                     seed, chunkX + ringX * spacing, chunkZ + ringZ * spacing);
+                            //? if <1.20.2 {
+                            /*if (placement.isStructureChunk(state, chunkX(candidate), chunkZ(candidate)))*/
+                            //?} else {
                             if (spread.applyAdditionalChunkRestrictions(chunkX(candidate), chunkZ(candidate), seed))
+                            //?}
                             {
                                 result.add(candidate);
                             }
@@ -838,7 +860,11 @@ public final class BetterLocateCommand
                         continue;
                     }
                     // 与原版 StructureCheck#checkStart 里的第一步判断保持一致
+                    //? if <1.20.2 {
+                    /*if (!placement.isStructureChunk(state, chunkX(candidate), chunkZ(candidate)))*/
+                    //?} else {
                     if (!spread.applyAdditionalChunkRestrictions(chunkX(candidate), chunkZ(candidate), seed))
+                    //?}
                     {
                         continue;
                     }
@@ -1208,4 +1234,3 @@ public final class BetterLocateCommand
         }
     }
 }
-

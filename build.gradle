@@ -1,7 +1,15 @@
 plugins {
     id 'idea'
     id 'java-library'
-    id 'net.neoforged.moddev' version '2.0.148'
+    id 'net.neoforged.moddev' version '2.0.148' apply false
+    id 'net.neoforged.moddev.legacyforge' version '2.0.148' apply false
+}
+
+def isLegacyForge = sc.current.version.compareTo('1.20.2') < 0
+if (isLegacyForge) {
+    apply plugin: 'net.neoforged.moddev.legacyforge'
+} else {
+    apply plugin: 'net.neoforged.moddev'
 }
 
 // 本脚本会被 Stonecutter 对每个 Minecraft 版本各执行一次
@@ -22,46 +30,88 @@ base {
 java.toolchain.languageVersion = JavaLanguageVersion.of(
         (project.findProperty('java_version') ?: '21') as int)
 
-neoForge {
-    version = project.neo_version
+dependencies {
+    if (isLegacyForge) {
+        // legacyforge 通过 Mixin 注解处理器生成 SRG refmap 与重映射表。
+        annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    }
+}
 
-    // Parchment 不是每个游戏版本都有；节点里没写就跳过
-    if (project.hasProperty('parchment_mappings_version') && project.parchment_mappings_version) {
-        parchment {
-            mappingsVersion = project.parchment_mappings_version
-            minecraftVersion = project.parchment_minecraft_version
-        }
+if (isLegacyForge) {
+    // 1.20.1 对应 Forge 47.x；legacyforge 同时负责生成并打包 Mixin refmap。
+    mixin {
+        add(sourceSets.main, "${mod_id}.refmap.json")
+        config "${mod_id}.mixins.json"
     }
 
-    runs {
-        client {
-            client()
-        }
-        server {
-            server()
-            programArgument '--nogui'
+    legacyForge {
+        version = "${project.minecraft_version}-${project.forge_version}"
+
+        if (project.hasProperty('parchment_mappings_version') && project.parchment_mappings_version) {
+            parchment {
+                mappingsVersion = project.parchment_mappings_version
+                minecraftVersion = project.parchment_minecraft_version
+            }
         }
 
-        configureEach {
-            // 各游戏版本使用独立的运行目录，避免存档与配置互相污染
-            gameDirectory = file("${rootDir}/run/${sc.current.version}")
+        runs {
+            client {
+                client()
+                gameDirectory = file("${rootDir}/run/${sc.current.version}")
+            }
+            server {
+                server()
+                programArgument '--nogui'
+                gameDirectory = file("${rootDir}/run/${sc.current.version}")
+            }
+        }
+
+        mods {
+            "${mod_id}" {
+                sourceSet sourceSets.main
+            }
         }
     }
+} else {
+    neoForge {
+        version = project.neo_version
 
-    mods {
-        "${mod_id}" {
-            sourceSet sourceSets.main
+        // Parchment 不是每个游戏版本都有；节点里没写就跳过
+        if (project.hasProperty('parchment_mappings_version') && project.parchment_mappings_version) {
+            parchment {
+                mappingsVersion = project.parchment_mappings_version
+                minecraftVersion = project.parchment_minecraft_version
+            }
+        }
+
+        runs {
+            client {
+                client()
+            }
+            server {
+                server()
+                programArgument '--nogui'
+            }
+
+            configureEach {
+                // 各游戏版本使用独立的运行目录，避免存档与配置互相污染
+                gameDirectory = file("${rootDir}/run/${sc.current.version}")
+            }
+        }
+
+        mods {
+            "${mod_id}" {
+                sourceSet sourceSets.main
+            }
         }
     }
 }
 
-// 把 src/main/templates 里 ${...} 占位符换成当前节点的实际参数
+// 把版本对应的模板目录里 ${...} 占位符换成当前节点的实际参数
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
     var replaceProperties = [
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
-            neo_version_range      : neo_version_range,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,
@@ -70,21 +120,60 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             mod_authors            : mod_authors,
             mod_description        : mod_description,
     ]
+    if (isLegacyForge) {
+        replaceProperties.forge_version_range = forge_version_range
+    } else {
+        replaceProperties.neo_version = neo_version
+        replaceProperties.neo_version_range = neo_version_range
+    }
     inputs.properties replaceProperties
     expand replaceProperties
     // 注意：节点项目的目录在 versions/<版本>/ 下，模板必须从工程根取
-    from "${rootDir}/src/main/templates"
+    from isLegacyForge ? "${rootDir}/src/main/templates-forge" : "${rootDir}/src/main/templates"
     into "${buildDir}/generated/sources/modMetadata"
 }
 sourceSets.main.resources.srcDir generateModMetadata
-neoForge.ideSyncTask generateModMetadata
+if (!isLegacyForge) {
+    neoForge.ideSyncTask generateModMetadata
+}
+
+if (isLegacyForge) {
+    def legacyResourcesOut = sourceSets.main.output.resourcesDir
+    def mixinConfigName = "${project.mod_id}.mixins.json"
+    def refmapName = "${project.mod_id}.refmap.json"
+    tasks.named('processResources', ProcessResources).configure { task ->
+        filesMatching(mixinConfigName) {
+            filter { String line -> line.replace('"compatibilityLevel": "JAVA_21"', '"compatibilityLevel": "JAVA_17"') }
+        }
+        task.doLast {
+            def mixinJson = new File(legacyResourcesOut, mixinConfigName)
+            if (mixinJson.exists()) {
+                def text = mixinJson.getText('UTF-8')
+                if (!text.contains('"refmap"')) {
+                    text = text.replace('"compatibilityLevel": "JAVA_17",',
+                            '"compatibilityLevel": "JAVA_17",' + System.lineSeparator() + '  "refmap": "' + refmapName + '",')
+                    mixinJson.setText(text, 'UTF-8')
+                }
+            }
+        }
+    }
+
+    tasks.named('jar', Jar).configure {
+        manifest {
+            attributes 'MixinConfigs': mixinConfigName
+        }
+    }
+}
 
 // 构建完成后把 jar 复制到工程根目录的 lib/ 和 libs/：
 // 每个游戏版本各留一份，文件名带版本号（betterlocate-<mod_version>+<mc_version>.jar）
 ['lib', 'libs'].each { folder ->
     def copyJar = tasks.register("copyJarTo${folder.capitalize()}", Copy) {
-        dependsOn tasks.named('jar')
-        from tasks.named('jar').flatMap { it.archiveFile }
+        // Forge 1.20.1 的开发包使用 SRG -> 官方名映射，发布时必须复制 reobfJar。
+        def packagedJar = isLegacyForge && tasks.findByName('reobfJar') != null
+                ? tasks.named('reobfJar') : tasks.named('jar')
+        dependsOn packagedJar
+        from packagedJar.flatMap { it.archiveFile }
         into rootProject.file(folder)
     }
     tasks.named('build') {
@@ -130,6 +219,9 @@ if (sc.current.version == '1.21.1') {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    if (isLegacyForge) {
+        options.release.set(17)
+    }
 }
 
 idea {
